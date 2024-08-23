@@ -19,9 +19,4 @@ at YZDE®, we envision a future where technology seamlessly integrates with huma
 * **neural network optimization:** our products utilize neural network optimization to enhance efficiency and adaptability.
 * **adaptive compression:** hyper® solutions employ adaptive compression techniques to maximize data throughput.
 
-**stay connected**
-
-* **website:** [your yZDE® website]
-* **social media:** [your yZDE® social media links]
-
 **embrace the hyper® revolution and experience the future today!**
