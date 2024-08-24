@@ -4,70 +4,81 @@
     <title>HyperConnect</title>
     <style>
         body {
-            font-family: sans-serif;
+            font-family: 'Roboto', sans-serif;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            min-height:   
- 100vh;
-            background-color: #f0f0f0;
-            color:   
- #333;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #2980b9, #6dd5fa);
+            color: #fff;
         }
 
         h1 {
-            font-size: 3em;
-            margin-bottom: 20px;
+            font-size: 3.5em;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
         }
 
         #connect-section, #upload-section, #download-section {
             display: flex;
             flex-direction: column;
             align-items: center;
-            background-color: #fff;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0   
- 2px 5px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            margin-bottom: 30px;
+            width: 400px;
         }
 
         #upload-section, #download-section {
-            display: none; /* Initially hidden */
+            display: none;
         }
 
         input[type="file"], input[type="text"] {
-            padding: 10px;
-            margin-bottom: 15px;
+            padding: 12px;
+            margin-bottom: 20px;
             border: 1px solid #ccc;
-            border-radius: 5px;
-            width: 300px;
+            border-radius: 8px;
+            width: 100%;
+            box-sizing: border-box;
         }
 
         button {
-            background-color: #4CAF50;
+            background-color: #2ecc71;
             color: white;
-            padding: 12px 20px;
+            padding: 14px 25px;
             border: none;
-            border-radius: 5px;
+            border-radius: 8px;
             cursor: pointer;
+            font-size: 1.2em;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #27ae60;
         }
 
         .progress {
-            width: 300px;
-            height: 20px;
-            background-color: #ccc;
-            border-radius: 5px;
-            margin-top: 10px;
+            width: 100%;
+            height: 25px;
+            background-color: #ecf0f1;
+            border-radius: 8px;
+            margin-top: 15px;
+            overflow: hidden;
         }
 
         .progress-bar {
             width: 0%;
             height: 100%;
-            background-color: #4CAF50;
-            border-radius: 5px;
+            background-color: #3498db;
+            border-radius: 8px;
             transition: width 0.5s ease;
+        }
+
+        #progress-container, #download-progress-container {
+            margin-top: 20px;
         }
     </style>
 </head>
@@ -115,55 +126,55 @@ connectButton.addEventListener('click', () => {
         return;
     }
 
-    ws = new WebSocket(`ws://192.168.0.15:4333/connect/${pin}`);
+    ws = new WebSocket(`ws://192.168.0.15:4333/connect?pin=${pin}`);
 
     ws.onopen = () => {
         console.log('WebSocket connection opened');
         isConnected = true;
         connectSection.style.display = 'none';
 
-        // Determine if sender or receiver based on server response (you'll need to implement this logic)
-        // For now, let's assume the first to connect is the sender
-        isSender = !isSender; 
-
-        if (isSender) {
-            uploadSection.style.display = 'block';
-        } else {
-            downloadSection.style.display = 'block';
-        }
-    };
-
-    ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-
-        if (data.type === 'progress') {
-            const progress = data.progress;
-            const relativePath = data.relative_path;
-            updateProgressBar(progress, relativePath);
-        } else if (data.type === 'complete') {
-            alert('Download complete!');
-            ws.close();
-        } else if (data.type === 'start_upload') {
-            // Receiver: Create progress bars for incoming files/folders
-            for (const item of data.items) {
-                createProgressBar(item.relativePath);
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'connected') {
+                isSender = data.is_sender;
+                if (isSender) {
+                    uploadSection.style.display = 'block';
+                } else {
+                    downloadSection.style.display = 'block';
+                }
+            } else if (data.type === 'progress') {
+                const progress = data.progress;
+                const relativePath = data.relative_path;
+                updateProgressBar(progress, relativePath);
+            } else if (data.type === 'transfer_complete') {
+                const relativePath = data.relative_path;
+                updateProgressBar(100, relativePath); // Mark as 100% complete
+                if (!isSender) {
+                    alert(`Download of ${relativePath} complete!`);
+                }
+            } else if (data.type === 'start_download') {
+                // Receiver: Create progress bars for incoming files/folders
+                createProgressBar(data.relative_path);
+            } else if (data.type === 'chunk' && !isSender) {
+                const { data: chunkData, chunk_index, relative_path } = data;
+                handleChunk(chunkData, chunk_index, relative_path);
             }
-        }
-    };
+        };
 
-    ws.onclose = () => {
-        console.log('WebSocket connection closed');
-        isConnected = false;
-        connectSection.style.display = 'block';
-        uploadSection.style.display = 'none';
-        downloadSection.style.display = 'none';
-        progressContainer.innerHTML = ''; // Clear progress bars
-        downloadProgressContainer.innerHTML = ''; 
-    };
+        ws.onclose = () => {
+            console.log('WebSocket connection closed');
+            isConnected = false;
+            connectSection.style.display = 'block';
+            uploadSection.style.display = 'none';
+            downloadSection.style.display = 'none';
+            progressContainer.innerHTML = ''; 
+            downloadProgressContainer.innerHTML = ''; 
+        };
 
-    ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        alert('An error occurred. Please try again.');
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            alert('An error occurred. Please try again.');
+        };
     };
 });
 
@@ -180,12 +191,11 @@ uploadButton.addEventListener('click', () => {
         return;
     }
 
-    // Notify the receiver that the upload is starting
     const items = Array.from(files).map(file => ({
         relativePath: getRelativePath(file),
         isFolder: file.webkitRelativePath ? true : false
     }));
-    ws.send(JSON.stringify({ type: 'start_upload', items }));
+    ws.send(JSON.stringify({ type: 'start_upload', items, pin: document.getElementById('pin').value }));
 
     for (const file of files) {
         uploadFile(file, document.getElementById('pin').value);
@@ -193,7 +203,7 @@ uploadButton.addEventListener('click', () => {
 });
 
 function uploadFile(file, pin) {
-    const chunkSize = 1024 * 1024; 
+    const chunkSize = 1024 * 1024;
     const totalChunks = Math.ceil(file.size / chunkSize);
     let uploadedChunks = 0;
 
@@ -222,111 +232,4 @@ function uploadFile(file, pin) {
 
             if (!response.ok) {
                 throw new Error('Upload failed');
-            }
-
-            uploadedChunks++;
-            const progress = (uploadedChunks / totalChunks) * 100;
-            updateProgressBar(progress, relativePath);
-
-            if (uploadedChunks < totalChunks) {
-                readNextChunk();
-            }
-        } catch (error) {
-            console.error('Error uploading chunk:', error);
-            alert('An error occurred during upload.');
-        }
-    };
-
-    function readNextChunk() {
-        const start = uploadedChunks * chunkSize;
-        const end = Math.min(start + chunkSize, file.size);
-        const blob = file.slice(start, end);
-        reader.readAsArrayBuffer(blob);
-    }
-
-    readNextChunk(); 
-}
-
-function getRelativePath(file) {
-    if (file.webkitRelativePath) {
-        return file.webkitRelativePath;
-    } else {
-        return file.name;
-    }
-}
-
-function createProgressBar(relativePath) {
-    const progressBar = document.createElement('div');
-    progressBar.classList.add('progress-bar');
-    const progressText = document.createElement('span');
-    progressText.textContent = `Uploading/Downloading ${relativePath}... 0%`;
-    const progressItem = document.createElement('div');
-    progressItem.classList.add('progress');
-    progressItem.appendChild(progressText);
-    progressItem.appendChild(progressBar);
-    (isSender ? progressContainer : downloadProgressContainer).appendChild(progressItem);
-    return progressBar;
-}
-
-function updateProgressBar(progress, relativePath) {
-    const progressItem = document.querySelector(`.progress:has(span:contains("${relativePath}"))`);
-    if (progressItem) {
-        const progressBar = progressItem.querySelector('.progress-bar');
-        const progressText = progressItem.querySelector('span');
-        progressBar.style.width = progress + '%';
-        progressText.textContent = (isSender ? 'Uploading' : 'Downloading') + ` ${relativePath}... ${progress.toFixed(2)}%`;
-
-        if (progress >= 100) {
-            progressText.textContent = (isSender ? 'Uploaded' : 'Downloaded') + ` ${relativePath}!`;
-        }
-    }
-}
-
-downloadButton.addEventListener('click', () => {
-    const pin = downloadPinInput.value;
-
-    if (!pin) {
-        alert('Please enter a PIN to receive.');
-        return;
-    }
-
-    ws = new WebSocket(`ws://192.168.0.15:4333/download/${pin}`);
-
-    ws.onopen = () => {
-        console.log('WebSocket connection opened for download');
-    };
-
-    ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-
-        if (data.type === 'progress') {
-            const progress = data.progress;
-            const relativePath = data.relative_path;
-            updateProgressBar(progress, relativePath);
-        } else if (data.type === 'complete') {
-            const filename = data.filename;
-            const blob = new Blob([data.fileData]);
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            alert('Download complete!');
-            ws.close();
-        }
-    };
-
-    ws.onclose = () => {
-        console.log('WebSocket connection closed');
-    };
-
-    ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        alert('An error occurred during download.');
-    };
-});
-    </script>
-</body>
-</html>
+      
