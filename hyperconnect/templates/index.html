@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HyperConnect</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f0f0f0;
+            color: #333;
+        }
+
+        h1 {
+            font-size: 3em;
+            margin-bottom: 20px;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        input[type="file"], input[type="text"] {
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            width: 300px;
+        }
+
+        button[type="submit"] {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #progress {
+            width: 300px;
+            height: 20px;
+            background-color: #ccc;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+
+        #progress-bar {
+            width: 0%;
+            height: 100%;
+            background-color: #4CAF50;
+            border-radius: 5px;
+            transition: width 0.5s ease;
+        }
+</style>
+</head>
+<body>
+    <h1>HyperConnect</h1>
+
+    <form id="upload-form" enctype="multipart/form-data">
+        <input type="file" id="file" name="file" multiple webkitdirectory> <button type="submit">Send</button>
+    </form>
+
+    <input type="text" id="pin" name="pin" placeholder="Enter PIN">
+
+    <div id="progress-container"></div> <div id="download-section">
+        <h2>Receive File</h2>
+        <input type="text" id="download-pin" placeholder="Enter PIN to receive">
+        <button id="download-button">Receive</button>
+        <div id="download-progress">
+            <div id="download-progress-bar"></div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('upload-form');
+        const fileInput = document.getElementById('file');
+        const progressContainer = document.getElementById('progress-container');
+        const downloadSection = document.getElementById('download-section');
+        const downloadPinInput = document.getElementById('download-pin');
+        const downloadButton = document.getElementById('download-button');
+        const downloadProgressBar = document.getElementById('download-progress-bar');
+
+        let ws; 
+
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+
+            const files = fileInput.files;
+            const pin = document.getElementById('pin').value;
+
+            if (files.length === 0 || !pin) {
+                alert('Please select files and enter a PIN.');
+                return;
+            }
+
+            for (const file of files) {
+                uploadFile(file, pin);
+            }
+        });
+
+        async function uploadFile(file, pin) {
+            const chunkSize = 1024 * 1024; 
+            const totalChunks = Math.ceil(file.size / chunkSize);
+            let uploadedChunks = 0;
+
+            const relativePath = getRelativePath(file);
+
+            const progressBar = document.createElement('div');
+            progressBar.classList.add('progress-bar');
+            const progressText = document.createElement('span');
+            progressText.textContent = `Uploading ${relativePath}... 0%`;
+            const progressItem = document.createElement('div');
+            progressItem.appendChild(progressText);
+            progressItem.appendChild(progressBar);
+            progressContainer.appendChild(progressItem);
+
+            const reader = new FileReader();
+
+            reader.onload = async (e) => {
+                
+    const chunk = e.target.result;
+
+    try {
+        const response = await fetch('/upload', {
+            method: 'POST',
+            body: chunk,
+            headers: {
+                'Content-Type': 'application/octet-stream',
+                'X-File-Id': file.name, 
+                'X-Chunk-Index': uploadedChunks, // Make sure these headers are set correctly
+                'X-Total-Chunks': totalChunks,
+                'X-Pin': pin,
+                'X-Is-Folder': file.webkitRelativePath ? 'true' : 'false',
+                'X-Relative-Path': relativePath
+            }
+        });
+                    if (!response.ok) {
+                        throw new Error('Upload failed');
+                    }
+
+                    uploadedChunks++;
+                    const progress = (uploadedChunks / totalChunks) * 100;
+                    progressBar.style.width = progress + '%';
+                    progressText.textContent = `Uploading ${relativePath}... ${progress.toFixed(2)}%`;
+
+                    if (uploadedChunks < totalChunks) {
+                        readNextChunk();
+                    } else {
+                        progressText.textContent = `Uploaded ${relativePath}!`;
+                    }
+                } catch (error) {
+                    console.error('Error uploading chunk:', error);
+                    alert('An error occurred during upload.');
+                }
+            };
+
+            function readNextChunk() {
+                const start = uploadedChunks * chunkSize;
+                const end = Math.min(start + chunkSize, file.size);
+                const blob = file.slice(start, end);
+                reader.readAsArrayBuffer(blob);
+            }
+
+            readNextChunk();
+        }
+
+        function getRelativePath(file) {
+            if (file.webkitRelativePath) {
+                return file.webkitRelativePath;
+            } else {
+                return file.name;
+            }
+        }
+
+        downloadButton.addEventListener('click', () => {
+            const pin = downloadPinInput.value;
+
+            if (!pin) {
+                alert('Please enter a PIN to receive.');
+                return;
+            }
+
+            ws = new WebSocket(`ws://your-server-address/download/${pin}`);
+
+            ws.onopen = () => {
+                console.log('WebSocket connection opened');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'progress') {
+                    const progress = data.progress;
+                    const relativePath = data.relative_path;
+                    // Upda
