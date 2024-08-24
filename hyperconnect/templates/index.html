@@ -9,9 +9,11 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            min-height: 100vh;
+            min-height:   
+ 100vh;
             background-color: #f0f0f0;
-            color: #333;
+            color:   
+ #333;
         }
 
         h1 {
@@ -19,14 +21,20 @@
             margin-bottom: 20px;
         }
 
-        form {
+        #connect-section, #upload-section, #download-section {
             display: flex;
             flex-direction: column;
             align-items: center;
             background-color: #fff;
             padding: 30px;
             border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            box-shadow: 0   
+ 2px 5px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        #upload-section, #download-section {
+            display: none; /* Initially hidden */
         }
 
         input[type="file"], input[type="text"] {
@@ -37,7 +45,7 @@
             width: 300px;
         }
 
-        button[type="submit"] {
+        button {
             background-color: #4CAF50;
             color: white;
             padding: 12px 20px;
@@ -46,160 +54,279 @@
             cursor: pointer;
         }
 
-        #progress {
+        .progress {
             width: 300px;
             height: 20px;
             background-color: #ccc;
             border-radius: 5px;
-            margin-top: 20px;
+            margin-top: 10px;
         }
 
-        #progress-bar {
+        .progress-bar {
             width: 0%;
             height: 100%;
             background-color: #4CAF50;
             border-radius: 5px;
             transition: width 0.5s ease;
         }
-</style>
+    </style>
 </head>
 <body>
     <h1>HyperConnect</h1>
 
-    <form id="upload-form" enctype="multipart/form-data">
-        <input type="file" id="file" name="file" multiple webkitdirectory> <button type="submit">Send</button>
-    </form>
+    <div id="connect-section">
+        <h2>Connect</h2>
+        <input type="text" id="pin" placeholder="Enter PIN">
+        <button id="connect-button">Connect</button>
+    </div>
 
-    <input type="text" id="pin" name="pin" placeholder="Enter PIN">
+    <div id="upload-section">
+        <h2>Upload</h2>
+        <input type="file" id="file" name="file" multiple webkitdirectory>
+        <button id="upload-button">Upload</button>
+        <div id="progress-container"></div>
+    </div>
 
-    <div id="progress-container"></div> <div id="download-section">
-        <h2>Receive File</h2>
-        <input type="text" id="download-pin" placeholder="Enter PIN to receive">
-        <button id="download-button">Receive</button>
-        <div id="download-progress">
-            <div id="download-progress-bar"></div>
-        </div>
+    <div id="download-section">
+        <h2>Download</h2>
+        <div id="download-progress-container"></div>
     </div>
 
     <script>
         const form = document.getElementById('upload-form');
-        const fileInput = document.getElementById('file');
-        const progressContainer = document.getElementById('progress-container');
-        const downloadSection = document.getElementById('download-section');
-        const downloadPinInput = document.getElementById('download-pin');
-        const downloadButton = document.getElementById('download-button');
-        const downloadProgressBar = document.getElementById('download-progress-bar');
+const fileInput = document.getElementById('file');
+const progressContainer = document.getElementById('progress-container');
+const downloadSection = document.getElementById('download-section');
+const downloadProgressContainer = document.getElementById('download-progress-container');
+const connectSection = document.getElementById('connect-section');
+const uploadSection = document.getElementById('upload-section');
+const connectButton = document.getElementById('connect-button');
+const uploadButton = document.getElementById('upload-button');
 
-        let ws; 
+let ws; 
+let isConnected = false;
+let isSender = false;
 
-        form.addEventListener('submit', (event) => {
-            event.preventDefault();
+connectButton.addEventListener('click', () => {
+    const pin = document.getElementById('pin').value;
 
-            const files = fileInput.files;
-            const pin = document.getElementById('pin').value;
+    if (!pin) {
+        alert('Please enter a PIN.');
+        return;
+    }
 
-            if (files.length === 0 || !pin) {
-                alert('Please select files and enter a PIN.');
-                return;
+    ws = new WebSocket(`ws://192.168.0.15:4333/connect/${pin}`);
+
+    ws.onopen = () => {
+        console.log('WebSocket connection opened');
+        isConnected = true;
+        connectSection.style.display = 'none';
+
+        // Determine if sender or receiver based on server response (you'll need to implement this logic)
+        // For now, let's assume the first to connect is the sender
+        isSender = !isSender; 
+
+        if (isSender) {
+            uploadSection.style.display = 'block';
+        } else {
+            downloadSection.style.display = 'block';
+        }
+    };
+
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'progress') {
+            const progress = data.progress;
+            const relativePath = data.relative_path;
+            updateProgressBar(progress, relativePath);
+        } else if (data.type === 'complete') {
+            alert('Download complete!');
+            ws.close();
+        } else if (data.type === 'start_upload') {
+            // Receiver: Create progress bars for incoming files/folders
+            for (const item of data.items) {
+                createProgressBar(item.relativePath);
             }
+        }
+    };
 
-            for (const file of files) {
-                uploadFile(file, pin);
-            }
-        });
+    ws.onclose = () => {
+        console.log('WebSocket connection closed');
+        isConnected = false;
+        connectSection.style.display = 'block';
+        uploadSection.style.display = 'none';
+        downloadSection.style.display = 'none';
+        progressContainer.innerHTML = ''; // Clear progress bars
+        downloadProgressContainer.innerHTML = ''; 
+    };
 
-        async function uploadFile(file, pin) {
-            const chunkSize = 1024 * 1024; 
-            const totalChunks = Math.ceil(file.size / chunkSize);
-            let uploadedChunks = 0;
+    ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        alert('An error occurred. Please try again.');
+    };
+});
 
-            const relativePath = getRelativePath(file);
+uploadButton.addEventListener('click', () => {
+    if (!isConnected) {
+        alert('Please connect first.');
+        return;
+    }
 
-            const progressBar = document.createElement('div');
-            progressBar.classList.add('progress-bar');
-            const progressText = document.createElement('span');
-            progressText.textContent = `Uploading ${relativePath}... 0%`;
-            const progressItem = document.createElement('div');
-            progressItem.appendChild(progressText);
-            progressItem.appendChild(progressBar);
-            progressContainer.appendChild(progressItem);
+    const files = fileInput.files;
 
-            const reader = new FileReader();
+    if (files.length === 0) {
+        alert('Please select files to upload.');
+        return;
+    }
 
-            reader.onload = async (e) => {
-                
-    const chunk = e.target.result;
+    // Notify the receiver that the upload is starting
+    const items = Array.from(files).map(file => ({
+        relativePath: getRelativePath(file),
+        isFolder: file.webkitRelativePath ? true : false
+    }));
+    ws.send(JSON.stringify({ type: 'start_upload', items }));
 
-    try {
-        const response = await fetch('/upload', {
-            method: 'POST',
-            body: chunk,
-            headers: {
-                'Content-Type': 'application/octet-stream',
-                'X-File-Id': file.name, 
-                'X-Chunk-Index': uploadedChunks, // Make sure these headers are set correctly
-                'X-Total-Chunks': totalChunks,
-                'X-Pin': pin,
-                'X-Is-Folder': file.webkitRelativePath ? 'true' : 'false',
-                'X-Relative-Path': relativePath
-            }
-        });
-                    if (!response.ok) {
-                        throw new Error('Upload failed');
-                    }
+    for (const file of files) {
+        uploadFile(file, document.getElementById('pin').value);
+    }
+});
 
-                    uploadedChunks++;
-                    const progress = (uploadedChunks / totalChunks) * 100;
-                    progressBar.style.width = progress + '%';
-                    progressText.textContent = `Uploading ${relativePath}... ${progress.toFixed(2)}%`;
+function uploadFile(file, pin) {
+    const chunkSize = 1024 * 1024; 
+    const totalChunks = Math.ceil(file.size / chunkSize);
+    let uploadedChunks = 0;
 
-                    if (uploadedChunks < totalChunks) {
-                        readNextChunk();
-                    } else {
-                        progressText.textContent = `Uploaded ${relativePath}!`;
-                    }
-                } catch (error) {
-                    console.error('Error uploading chunk:', error);
-                    alert('An error occurred during upload.');
+    const relativePath = getRelativePath(file);
+    const progressBar = createProgressBar(relativePath);
+
+    const reader = new FileReader();
+
+    reader.onload = async (e) => {
+        const chunk = e.target.result;
+
+        try {
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: chunk,
+                headers: {
+                    'Content-Type': 'application/octet-stream',
+                    'X-File-Id': file.name,
+                    'X-Chunk-Index': uploadedChunks,
+                    'X-Total-Chunks': totalChunks,
+                    'X-Pin': pin,
+                    'X-Is-Folder': file.webkitRelativePath ? 'true' : 'false',
+                    'X-Relative-Path': relativePath
                 }
-            };
+            });
 
-            function readNextChunk() {
-                const start = uploadedChunks * chunkSize;
-                const end = Math.min(start + chunkSize, file.size);
-                const blob = file.slice(start, end);
-                reader.readAsArrayBuffer(blob);
+            if (!response.ok) {
+                throw new Error('Upload failed');
             }
 
-            readNextChunk();
+            uploadedChunks++;
+            const progress = (uploadedChunks / totalChunks) * 100;
+            updateProgressBar(progress, relativePath);
+
+            if (uploadedChunks < totalChunks) {
+                readNextChunk();
+            }
+        } catch (error) {
+            console.error('Error uploading chunk:', error);
+            alert('An error occurred during upload.');
         }
+    };
 
-        function getRelativePath(file) {
-            if (file.webkitRelativePath) {
-                return file.webkitRelativePath;
-            } else {
-                return file.name;
-            }
+    function readNextChunk() {
+        const start = uploadedChunks * chunkSize;
+        const end = Math.min(start + chunkSize, file.size);
+        const blob = file.slice(start, end);
+        reader.readAsArrayBuffer(blob);
+    }
+
+    readNextChunk(); 
+}
+
+function getRelativePath(file) {
+    if (file.webkitRelativePath) {
+        return file.webkitRelativePath;
+    } else {
+        return file.name;
+    }
+}
+
+function createProgressBar(relativePath) {
+    const progressBar = document.createElement('div');
+    progressBar.classList.add('progress-bar');
+    const progressText = document.createElement('span');
+    progressText.textContent = `Uploading/Downloading ${relativePath}... 0%`;
+    const progressItem = document.createElement('div');
+    progressItem.classList.add('progress');
+    progressItem.appendChild(progressText);
+    progressItem.appendChild(progressBar);
+    (isSender ? progressContainer : downloadProgressContainer).appendChild(progressItem);
+    return progressBar;
+}
+
+function updateProgressBar(progress, relativePath) {
+    const progressItem = document.querySelector(`.progress:has(span:contains("${relativePath}"))`);
+    if (progressItem) {
+        const progressBar = progressItem.querySelector('.progress-bar');
+        const progressText = progressItem.querySelector('span');
+        progressBar.style.width = progress + '%';
+        progressText.textContent = (isSender ? 'Uploading' : 'Downloading') + ` ${relativePath}... ${progress.toFixed(2)}%`;
+
+        if (progress >= 100) {
+            progressText.textContent = (isSender ? 'Uploaded' : 'Downloaded') + ` ${relativePath}!`;
         }
+    }
+}
 
-        downloadButton.addEventListener('click', () => {
-            const pin = downloadPinInput.value;
+downloadButton.addEventListener('click', () => {
+    const pin = downloadPinInput.value;
 
-            if (!pin) {
-                alert('Please enter a PIN to receive.');
-                return;
-            }
+    if (!pin) {
+        alert('Please enter a PIN to receive.');
+        return;
+    }
 
-            ws = new WebSocket(`ws://your-server-address/download/${pin}`);
+    ws = new WebSocket(`ws://192.168.0.15:4333/download/${pin}`);
 
-            ws.onopen = () => {
-                console.log('WebSocket connection opened');
-            };
+    ws.onopen = () => {
+        console.log('WebSocket connection opened for download');
+    };
 
-            ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
 
-                if (data.type === 'progress') {
-                    const progress = data.progress;
-                    const relativePath = data.relative_path;
-                    // Upda
+        if (data.type === 'progress') {
+            const progress = data.progress;
+            const relativePath = data.relative_path;
+            updateProgressBar(progress, relativePath);
+        } else if (data.type === 'complete') {
+            const filename = data.filename;
+            const blob = new Blob([data.fileData]);
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            alert('Download complete!');
+            ws.close();
+        }
+    };
+
+    ws.onclose = () => {
+        console.log('WebSocket connection closed');
+    };
+
+    ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        alert('An error occurred during download.');
+    };
+});
+    </script>
+</body>
+</html>
